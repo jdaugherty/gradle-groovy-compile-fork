@@ -1,0 +1,84 @@
+/*
+ * Copyright 2018 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * This file is derived from Gradle (https://github.com/gradle/gradle), from
+ * platforms/jvm/language-java/src/main/java/org/gradle/api/internal/tasks/compile/incremental/recomp/PreviousCompilation.java
+ * It has been moved to another package and modified, see the NOTICE file.
+ */
+package io.github.jdaugherty.incrementalgroovy.internal.incremental.recomp;
+
+import org.gradle.api.internal.tasks.compile.incremental.compilerapi.deps.DependentsSet;
+import io.github.jdaugherty.incrementalgroovy.internal.incremental.deps.ClassSetAnalysis;
+import org.jspecify.annotations.Nullable;
+
+import java.util.Collections;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+public class PreviousCompilation {
+    private final PreviousCompilationData data;
+    private final ClassSetAnalysis classAnalysis;
+
+    public PreviousCompilation(PreviousCompilationData data) {
+        this.data = data;
+        this.classAnalysis = new ClassSetAnalysis(data.getOutputSnapshot(), data.getAnnotationProcessingData(), data.getCompilerApiData());
+    }
+
+    @Nullable
+    public ClassSetAnalysis getClasspath() {
+        return new ClassSetAnalysis(data.getClasspathSnapshot());
+    }
+
+    public DependentsSet findDependentsOfClasspathChanges(ClassSetAnalysis.ClassSetDiff diff) {
+        if (diff.getDependents().isDependencyToAll()) {
+            return diff.getDependents();
+        }
+        return classAnalysis.findTransitiveDependents(diff.getDependents().getAllDependentClasses(), diff.getConstants());
+    }
+
+    public DependentsSet findDependentsOfSourceChanges(Set<String> classNames) {
+        return classAnalysis.findTransitiveDependents(classNames, classNames.stream().collect(Collectors.toMap(Function.identity(), classAnalysis::getConstants)));
+    }
+
+    /**
+     * The given classes being recompiled that a class not being recompiled refers to, directly or through other classes being
+     * recompiled.
+     */
+    public Set<String> findClassesReferencedFromOutside(Set<String> recompiledClasses) {
+        return classAnalysis.findClassesReferencedFromOutside(recompiledClasses);
+    }
+
+    /**
+     * The dependents of classes that are recompiled although their source did not change, so neither did their constants.
+     */
+    public DependentsSet findDependentsOfRecompiledClasses(Set<String> classNames) {
+        return classAnalysis.findTransitiveDependents(classNames, Collections.emptyMap());
+    }
+
+    public DependentsSet getAnnotationProcessingDependentsSet(String className) {
+        return classAnalysis.getAnnotationProcessingDependentsSet(className);
+    }
+
+    public Set<String> getTypesToReprocess(Set<String> compiledClasses) {
+        return classAnalysis.getTypesToReprocess(compiledClasses);
+    }
+
+    public SourceFileClassNameConverter getSourceToClassConverter() {
+        return new DefaultSourceFileClassNameConverter(data.getCompilerApiData().getSourceToClassMapping());
+    }
+}

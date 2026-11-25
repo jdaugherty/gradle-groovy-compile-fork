@@ -1,0 +1,129 @@
+/*
+ * Copyright the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+plugins {
+    id 'java-gradle-plugin'
+    id 'groovy'
+    id 'maven-publish'
+    id 'org.nosphere.apache.rat' version '0.11.0'
+}
+
+group = 'io.github.jdaugherty'
+version = '0.1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    // The compiler classes, which share Gradle's own libraries with it. They are loaded by a class loader of their own,
+    // see ImplementationLoader, since plugins cannot see those libraries, and the main classes must not refer to them.
+    impl
+    // The classes that run in the Groovy compiler daemon, which runs on the JVM of the project's toolchain
+    worker
+}
+
+// The jars of the Gradle distribution as they are at runtime. gradleApi() will not do for classes that share Gradle's
+// libraries with it, as it relocates them.
+def gradleDistribution = fileTree(dir: "${gradle.gradleHomeDir}/lib", include: '**/*.jar')
+
+dependencies {
+    implCompileOnly gradleDistribution
+    implCompileOnly sourceSets.worker.output
+    workerCompileOnly gradleDistribution
+
+    runtimeOnly sourceSets.impl.output
+    runtimeOnly sourceSets.worker.output
+
+    testImplementation gradleTestKit()
+    testImplementation platform('org.spockframework:spock-bom:2.3-groovy-4.0')
+    testImplementation 'org.spockframework:spock-core'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('compileJava', JavaCompile) {
+    options.release = 17
+}
+
+tasks.named('compileImplJava', JavaCompile) {
+    options.release = 17
+}
+
+tasks.named('compileWorkerJava', JavaCompile) {
+    options.release = 8
+    options.compilerArgs << '-Xlint:-options'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('jar', Jar) {
+    from sourceSets.impl.output
+    from sourceSets.worker.output
+    from('LICENSE') { into 'META-INF' }
+    from('NOTICE') { into 'META-INF' }
+}
+
+gradlePlugin {
+    plugins {
+        incrementalGroovyCompile {
+            id = 'io.github.jdaugherty.incremental-groovy-compile'
+            implementationClass = 'io.github.jdaugherty.incrementalgroovy.IncrementalGroovyCompilePlugin'
+            displayName = 'Incremental Groovy Compile'
+            description = 'Fixes incremental Groovy compilation failing with NoClassDefFoundError and recompiling more than it has to'
+        }
+    }
+}
+
+publishing {
+    publications.withType(MavenPublication).configureEach {
+        pom {
+            name = 'Incremental Groovy Compile'
+            description = 'Gradle plugin that fixes incremental Groovy compilation'
+            url = 'https://github.com/jdaugherty/gradle-groovy-compile-fork'
+            licenses {
+                license {
+                    name = 'The Apache License, Version 2.0'
+                    url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                }
+            }
+        }
+    }
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    // The Gradle versions the functional tests run the plugin on
+    systemProperty 'testedGradleVersions', '9.8.2,9.9.2'
+    maxHeapSize = '1g'
+}
+
+// Every file carries a license header. The classes derived from Gradle keep Gradle's.
+tasks.named('rat') {
+    excludes = [
+        'README.md',
+        'LICENSE',
+        'NOTICE',
+        '.gitignore',
+        '.gitattributes',
+        '.gradle/**',
+        '.idea/**',
+        'build/**',
+        'gradle/wrapper/**',
+    ]
+}
+
+apply from: 'gradle/import-upstream.gradle'
